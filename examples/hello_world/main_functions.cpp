@@ -1,117 +1,152 @@
-/* Copyright 2022 The TensorFlow Authors. All Rights Reserved.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-==============================================================================*/
-
 #include "constants.h"
-#include "hello_world_float_model_data.h"
+#include "hello_world_int8_model_data.h"
 #include "main_functions.h"
 #include "output_handler.h"
+
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_log.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/micro/system_setup.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-// Globals, used for compatibility with Arduino-style sketches.
+#include "pico/stdlib.h"
+
+// =============================================================
+//                     DWT COUNTERS
+// =============================================================
+#define DEMCR                (*(volatile uint32_t *)0xE000EDFC)
+#define DEMCR_TRCENA         (1u << 24)
+
+#define DWT_BASE             (0xE0001000u)
+#define DWT_CTRL             (*(volatile uint32_t *)(DWT_BASE + 0x000))
+#define DWT_CYCCNT           (*(volatile uint32_t *)(DWT_BASE + 0x004))
+#define DWT_CPICNT           (*(volatile uint32_t *)(DWT_BASE + 0x008))
+#define DWT_EXCCNT           (*(volatile uint32_t *)(DWT_BASE + 0x00C))
+#define DWT_SLEEPCNT         (*(volatile uint32_t *)(DWT_BASE + 0x010))
+#define DWT_LSUCNT           (*(volatile uint32_t *)(DWT_BASE + 0x014))
+#define DWT_FOLDCNT          (*(volatile uint32_t *)(DWT_BASE + 0x018))
+#define DWT_LAR              (*(volatile uint32_t *)(DWT_BASE + 0xFB0))
+
+#define DWT_CTRL_CYCCNTENA   (1u << 0)
+#define DWT_CTRL_CPIEVTENA   (1u << 17)
+#define DWT_CTRL_EXCEVTENA   (1u << 18)
+#define DWT_CTRL_SLEEPEVTENA (1u << 19)
+#define DWT_CTRL_LSUEVTENA   (1u << 20)
+#define DWT_CTRL_FOLDEVTENA  (1u << 21)
+
+static inline void dwt_enable_all() {
+    DEMCR |= DEMCR_TRCENA;
+    DWT_LAR = 0xC5ACCE55;
+
+    DWT_CYCCNT   = 0;
+    DWT_CPICNT   = 0;
+    DWT_EXCCNT   = 0;
+    DWT_SLEEPCNT = 0;
+    DWT_LSUCNT   = 0;
+    DWT_FOLDCNT  = 0;
+
+    DWT_CTRL |= DWT_CTRL_CYCCNTENA |
+                DWT_CTRL_CPIEVTENA |
+                DWT_CTRL_EXCEVTENA |
+                DWT_CTRL_SLEEPEVTENA |
+                DWT_CTRL_LSUEVTENA |
+                DWT_CTRL_FOLDEVTENA;
+}
+
+// =============================================================
+//                        TFLM GLOBALS
+// =============================================================
 namespace {
 const tflite::Model* model = nullptr;
 tflite::MicroInterpreter* interpreter = nullptr;
 TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
+
 int inference_count = 0;
 
 constexpr int kTensorArenaSize = 2000;
 uint8_t tensor_arena[kTensorArenaSize];
 }  // namespace
 
-// The name of this function is important for Arduino compatibility.
+// =============================================================
+//                          SETUP()
+// =============================================================
 void setup() {
+  stdio_init_all();
+
   tflite::InitializeTarget();
 
-  // Map the model into a usable data structure. This doesn't involve any
-  // copying or parsing, it's a very lightweight operation.
-  model = tflite::GetModel(g_hello_world_float_model_data);
+  model = tflite::GetModel(g_hello_world_int8_model_data);
+
   if (model->version() != TFLITE_SCHEMA_VERSION) {
-    MicroPrintf(
-        "Model provided is schema version %d not equal "
-        "to supported version %d.",
-        model->version(), TFLITE_SCHEMA_VERSION);
+    MicroPrintf("Bad model version");
     return;
   }
 
-  // This pulls in all the operation implementations we need.
-  // NOLINTNEXTLINE(runtime-global-variables)
   static tflite::MicroMutableOpResolver<1> resolver;
-  TfLiteStatus resolve_status = resolver.AddFullyConnected();
-  if (resolve_status != kTfLiteOk) {
-    MicroPrintf("Op resolution failed");
-    return;
-  }
+  resolver.AddFullyConnected();
 
-  // Build an interpreter to run the model with.
   static tflite::MicroInterpreter static_interpreter(
       model, resolver, tensor_arena, kTensorArenaSize);
+
   interpreter = &static_interpreter;
 
-  // Allocate memory from the tensor_arena for the model's tensors.
-  TfLiteStatus allocate_status = interpreter->AllocateTensors();
-  if (allocate_status != kTfLiteOk) {
+  if (interpreter->AllocateTensors() != kTfLiteOk) {
     MicroPrintf("AllocateTensors() failed");
     return;
   }
 
-  // Obtain pointers to the model's input and output tensors.
   input = interpreter->input(0);
   output = interpreter->output(0);
 
-  // Keep track of how many inferences we have performed.
   inference_count = 0;
 }
 
-// The name of this function is important for Arduino compatibility.
+// =============================================================
+//                           LOOP()
+// =============================================================
 void loop() {
-  // Calculate an x value to feed into the model. We compare the current
-  // inference_count to the number of inferences per cycle to determine
-  // our position within the range of possible x values the model was
-  // trained on, and use this to calculate a value.
   float position = static_cast<float>(inference_count) /
                    static_cast<float>(kInferencesPerCycle);
   float x = position * kXrange;
 
-  // Quantize the input from floating-point to integer
-  int8_t x_quantized = x / input->params.scale + input->params.zero_point;
-  // Place the quantized input in the model's input tensor
-  input->data.int8[0] = x_quantized;
+  // -----------------------------
+  // QUANTIZE INPUT → INT8
+  // -----------------------------
+  int8_t x_q = static_cast<int8_t>(x / input->params.scale + input->params.zero_point);
+  input->data.int8[0] = x_q;
 
-  // Run inference, and report any error
-  TfLiteStatus invoke_status = interpreter->Invoke();
-  if (invoke_status != kTfLiteOk) {
-    MicroPrintf("Invoke failed on x: %f\n", static_cast<double>(x));
+  dwt_enable_all();
+  uint64_t t0 = time_us_64();
+
+  TfLiteStatus status = interpreter->Invoke();
+
+  uint64_t t1 = time_us_64();
+
+  if (status != kTfLiteOk) {
+    MicroPrintf("Invoke failed");
     return;
   }
 
-  // Obtain the quantized output from model's output tensor
-  int8_t y_quantized = output->data.int8[0];
-  // Dequantize the output from integer to floating-point
-  float y = (y_quantized - output->params.zero_point) * output->params.scale;
+  // -----------------------------
+  // DEQUANTIZE OUTPUT
+  // -----------------------------
+  int8_t y_q = output->data.int8[0];
+  float y = (y_q - output->params.zero_point) * output->params.scale;
 
-  // Output the results. A custom HandleOutput function can be implemented
-  // for each supported hardware target.
+  uint32_t cycles = DWT_CYCCNT;
+  uint32_t cpi    = DWT_CPICNT;
+  uint32_t lsu    = DWT_LSUCNT;
+  uint32_t fold   = DWT_FOLDCNT;
+
+  printf("x=%.3f  y=%.3f  cycles=%u  lsu=%u  cpi=%u  fold=%u  time_us=%llu\n",
+         x, y, cycles, lsu, cpi, fold, (t1 - t0));
+
   HandleOutput(x, y);
 
-  // Increment the inference_counter, and reset it if we have reached
-  // the total number per cycle
-  inference_count += 1;
-  if (inference_count >= kInferencesPerCycle) inference_count = 0;
+  inference_count++;
+  if (inference_count >= kInferencesPerCycle)
+      inference_count = 0;
+
+  sleep_ms(30);
 }
