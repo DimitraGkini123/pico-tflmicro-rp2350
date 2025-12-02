@@ -69,6 +69,7 @@ target_sources(hello_world
   ${CMAKE_CURRENT_LIST_DIR}/constants.h
   ${CMAKE_CURRENT_LIST_DIR}/main_functions.h
   ${CMAKE_CURRENT_LIST_DIR}/output_handler.h
+  ${CMAKE_CURRENT_LIST_DIR}/mlp_int8_model_data.cpp
 )
 
 target_link_libraries(

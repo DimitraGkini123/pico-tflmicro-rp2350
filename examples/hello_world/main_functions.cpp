@@ -1,5 +1,6 @@
 #include "constants.h"
 #include "hello_world_int8_model_data.h"
+#include "mlp_int8_model_data.h"
 #include "main_functions.h"
 #include "output_handler.h"
 
@@ -64,7 +65,7 @@ TfLiteTensor* output = nullptr;
 
 int inference_count = 0;
 
-constexpr int kTensorArenaSize = 2000;
+constexpr int kTensorArenaSize = 100 * 1024;  // 100 KB
 uint8_t tensor_arena[kTensorArenaSize];
 }  // namespace
 
@@ -76,15 +77,18 @@ void setup() {
 
   tflite::InitializeTarget();
 
-  model = tflite::GetModel(g_hello_world_int8_model_data);
+  model = tflite::GetModel(g_mlp_int8_model_data);
 
   if (model->version() != TFLITE_SCHEMA_VERSION) {
     MicroPrintf("Bad model version");
     return;
   }
 
-  static tflite::MicroMutableOpResolver<1> resolver;
-  resolver.AddFullyConnected();
+  static tflite::MicroMutableOpResolver<3> resolver;
+resolver.AddFullyConnected();
+resolver.AddRelu();
+resolver.AddSoftmax();
+
 
   static tflite::MicroInterpreter static_interpreter(
       model, resolver, tensor_arena, kTensorArenaSize);
@@ -106,16 +110,41 @@ void setup() {
 //                           LOOP()
 // =============================================================
 void loop() {
-  float position = static_cast<float>(inference_count) /
-                   static_cast<float>(kInferencesPerCycle);
-  float x = position * kXrange;
+  
+  // =====================================
+  // 1. ΕΤΟΙΜΑΖΩ ΤΑ 59 FEATURES (float)
+  // =====================================
+ float features[59] = {
+      0.12, -0.33, 1.22, -0.88, 0.44,   // 5
+      -1.11, 0.95, -0.42, 0.77, 0.05,   // 10
+      -0.66, 1.44, -0.12, 0.33, -1.22,  // 15
+      0.21, 0.54, -0.74, 0.99, -0.25,   // 20
+      1.31, -0.17, 0.08, -0.51, 0.63,   // 25
+      0.27, -1.44, 0.11, 1.05, -0.96,   // 30
+      0.32, -0.55, 0.66, -0.83, 1.17,   // 35
+      0.41, 0.02, -0.14, 0.53, -1.09,   // 40
+      1.26, -0.72, 0.19, 0.07, -0.31,   // 45
+      0.58, -0.48, 0.24, 1.11, -0.67,   // 50
+      0.10, 0.39, -0.52, 0.74, -1.33,   // 55
+      0.89, -0.28, 0.61, 0.03           // 59
+  };
 
-  // -----------------------------
-  // QUANTIZE INPUT → INT8
-  // -----------------------------
-  int8_t x_q = static_cast<int8_t>(x / input->params.scale + input->params.zero_point);
-  input->data.int8[0] = x_q;
+  // =====================================
+  // 2. QUANTIZE → INT8
+  // =====================================
+  for (int i = 0; i < 59; i++) {
+      float x = features[i];
+      int32_t q = (int32_t)(x / input->params.scale + input->params.zero_point);
 
+      if (q < -128) q = -128;
+      if (q > 127) q = 127;
+
+      input->data.int8[i] = (int8_t)q;
+  }
+
+  // =====================================
+  // 3. DWT + Invoke
+  // =====================================
   dwt_enable_all();
   uint64_t t0 = time_us_64();
 
@@ -124,29 +153,34 @@ void loop() {
   uint64_t t1 = time_us_64();
 
   if (status != kTfLiteOk) {
-    MicroPrintf("Invoke failed");
+    printf("Invoke failed!\n");
     return;
   }
 
-  // -----------------------------
-  // DEQUANTIZE OUTPUT
-  // -----------------------------
-  int8_t y_q = output->data.int8[0];
-  float y = (y_q - output->params.zero_point) * output->params.scale;
+  // =====================================
+  // 4. READ OUTPUT (2 CLASS logits)
+  // =====================================
+  int8_t y0_q = output->data.int8[0];
+  int8_t y1_q = output->data.int8[1];
 
+  float y0 = (y0_q - output->params.zero_point) * output->params.scale;
+  float y1 = (y1_q - output->params.zero_point) * output->params.scale;
+
+  int predicted_class = (y0 > y1 ? 0 : 1);
+
+  // =====================================
+  // 5. READ DWT COUNTERS
+  // =====================================
   uint32_t cycles = DWT_CYCCNT;
   uint32_t cpi    = DWT_CPICNT;
   uint32_t lsu    = DWT_LSUCNT;
   uint32_t fold   = DWT_FOLDCNT;
 
-  printf("x=%.3f  y=%.3f  cycles=%u  lsu=%u  cpi=%u  fold=%u  time_us=%llu\n",
-         x, y, cycles, lsu, cpi, fold, (t1 - t0));
+  // =====================================
+  // 6. PRINT
+  // =====================================
+  printf("Pred=%d  y0=%.3f  y1=%.3f  cycles=%u  lsu=%u  cpi=%u  fold=%u  time_us=%llu\n",
+         predicted_class, y0, y1, cycles, lsu, cpi, fold, (t1 - t0));
 
-  HandleOutput(x, y);
-
-  inference_count++;
-  if (inference_count >= kInferencesPerCycle)
-      inference_count = 0;
-
-  sleep_ms(30);
+  sleep_ms(300);  // λίγο delay για καθαρό output
 }
