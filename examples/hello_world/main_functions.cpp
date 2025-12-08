@@ -4,6 +4,8 @@
 #include "main_functions.h"
 #include "output_handler.h"
 
+
+
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_log.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -110,6 +112,7 @@ resolver.AddSoftmax();
 //                           LOOP()
 // =============================================================
 void loop() {
+  
   
   // =====================================
   // 1. ΕΤΟΙΜΑΖΩ ΤΑ 59 FEATURES (float)

@@ -70,6 +70,7 @@ target_sources(hello_world
   ${CMAKE_CURRENT_LIST_DIR}/main_functions.h
   ${CMAKE_CURRENT_LIST_DIR}/output_handler.h
   ${CMAKE_CURRENT_LIST_DIR}/mlp_int8_model_data.cpp
+
 )
 
 target_link_libraries(
@@ -116,4 +117,93 @@ target_link_libraries(
 )
 
 pico_add_extra_outputs(output_handler_test)
+add_executable(fall_detection
+  ${CMAKE_CURRENT_LIST_DIR}/main.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/fall_detection_main.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/svm_model.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/constants.cpp
+)
 
+target_link_libraries(fall_detection
+  pico_stdlib      # μόνο αυτό χρειάζεται για τώρα
+)
+pico_enable_stdio_usb(fall_detection 1)
+pico_enable_stdio_uart(fall_detection 0)
+
+pico_add_extra_outputs(fall_detection)
+
+
+set(PICO_STACK_SIZE 4096)
+add_executable(seizure_detection "")
+
+target_include_directories(seizure_detection
+  PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/.
+)
+
+set_target_properties(
+  seizure_detection
+  PROPERTIES
+  COMPILE_FLAGS -fno-rtti
+  COMPILE_FLAGS -fno-exceptions
+  COMPILE_FLAGS -fno-threadsafe-statics
+  COMPILE_FLAGS -nostdlib
+)
+
+target_sources(seizure_detection
+  PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/constants.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/seizure_mlp_int8_model_data.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/main.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/seizure_main.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/rp2/output_handler.cpp
+  ${CMAKE_CURRENT_LIST_DIR}/constants.h
+  ${CMAKE_CURRENT_LIST_DIR}/main_functions.h
+  ${CMAKE_CURRENT_LIST_DIR}/output_handler.h
+
+)
+
+target_link_libraries(
+  seizure_detection
+  pico-tflmicro
+  hardware_pwm
+)
+
+pico_enable_stdio_usb(seizure_detection 1)
+pico_enable_stdio_uart(seizure_detection 0)
+
+pico_add_extra_outputs(seizure_detection)
+
+add_executable(glucose_detection
+    ${CMAKE_CURRENT_LIST_DIR}/glucose_main.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/mlp_glucose_int8_data.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/constants.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/rp2/output_handler.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/constants.h
+    ${CMAKE_CURRENT_LIST_DIR}/output_handler.h
+)
+
+target_include_directories(glucose_detection
+  PRIVATE
+  ${CMAKE_CURRENT_LIST_DIR}/.
+)
+
+set_target_properties(
+  glucose_detection
+  PROPERTIES
+  COMPILE_FLAGS -fno-rtti
+  COMPILE_FLAGS -fno-exceptions
+  COMPILE_FLAGS -fno-threadsafe-statics
+  COMPILE_FLAGS -nostdlib
+)
+
+target_link_libraries(
+  glucose_detection
+  pico-tflmicro
+  hardware_pwm
+)
+
+pico_enable_stdio_usb(glucose_detection 1)
+pico_enable_stdio_uart(glucose_detection 0)
+
+pico_add_extra_outputs(glucose_detection)
