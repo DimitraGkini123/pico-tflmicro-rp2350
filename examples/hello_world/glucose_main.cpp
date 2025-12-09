@@ -1,3 +1,5 @@
+#define TF_LITE_STRIP_ERROR_STRINGS
+#define MicroPrintf(...)
 #include "pico/stdlib.h"
 #include "tensorflow/lite/micro/micro_interpreter.h"
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
@@ -97,6 +99,8 @@ void setup() {
 //                           LOOP()
 // =============================================================
 void loop() {
+    printf("🟢 THIS IS DEFINITELY GLUCOSE DETECTION UF2 🟢\n");
+
 
     // =====================================
     // 1. 25 FEATURES (float)

@@ -85,38 +85,38 @@ pico_enable_stdio_uart(hello_world 0)
 pico_add_extra_outputs(hello_world)
 
 
-add_executable(output_handler_test "")
+#add_executable(output_handler_test "")
 
-target_include_directories(output_handler_test
-  PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}/.
-)
+#target_include_directories(output_handler_test
+#  PRIVATE
+#  ${CMAKE_CURRENT_LIST_DIR}/.
+#)
 
-set_target_properties(
-  output_handler_test
-  PROPERTIES
-  COMPILE_FLAGS -fno-rtti
-  COMPILE_FLAGS -fno-exceptions
-  COMPILE_FLAGS -fno-threadsafe-statics
-  COMPILE_FLAGS -nostdlib
-)
+#set_target_properties(
+ # output_handler_test
+ # PROPERTIES
+ # COMPILE_FLAGS -fno-rtti
+ # COMPILE_FLAGS -fno-exceptions
+#  COMPILE_FLAGS -fno-threadsafe-statics
+#  COMPILE_FLAGS -nostdlib
+#)
 
-target_sources(output_handler_test
-  PRIVATE
-  ${CMAKE_CURRENT_LIST_DIR}/output_handler_test.cpp
-  ${CMAKE_CURRENT_LIST_DIR}/rp2/output_handler.cpp
-  ${CMAKE_CURRENT_LIST_DIR}/constants.h
-  ${CMAKE_CURRENT_LIST_DIR}/output_handler.h
-)
+#target_sources(output_handler_test
+#  PRIVATE
+#  ${CMAKE_CURRENT_LIST_DIR}/output_handler_test.cpp
+#  ${CMAKE_CURRENT_LIST_DIR}/rp2/output_handler.cpp
+#  ${CMAKE_CURRENT_LIST_DIR}/constants.h
+#  ${CMAKE_CURRENT_LIST_DIR}/output_handler.h
+#)
 
-target_link_libraries(
-  output_handler_test
-  pico-tflmicro
-  hardware_pwm
-  pico-tflmicro_test
-)
+#target_link_libraries(
+#  output_handler_test
+#  pico-tflmicro
+#  hardware_pwm
+#  pico-tflmicro_test
+#)
 
-pico_add_extra_outputs(output_handler_test)
+#pico_add_extra_outputs(output_handler_test)
 add_executable(fall_detection
   ${CMAKE_CURRENT_LIST_DIR}/main.cpp
   ${CMAKE_CURRENT_LIST_DIR}/fall_detection_main.cpp

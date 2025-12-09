@@ -54,60 +54,16 @@ static inline void dwt_enable_all() {
                 DWT_CTRL_LSUEVTENA |
                 DWT_CTRL_FOLDEVTENA;
 }
-constexpr float kFeatureMeans[16] = {
-    // 1-2. ACC meanX, stdX
-    0.012f, 0.048f, 
-    // 3-4. ACC meanY, stdY
-    -0.015f, 0.042f, 
-    // 5-6. ACC meanZ, stdZ
-    0.035f, 0.055f, 
-    // 7-8. SMA, peak ACC
-    0.450f, 0.880f,
-    // 9. RMS EMG
-    0.115f, 
-    // 10. zero crossings (ZC)
-    9.5f, 
-    // 11. waveform length (WA)
-    16.5f, 
-    // 12. slope sign changes (SSC)
-    31.0f, 
-    // 13. EMG mean abs
-    0.032f, 
-    // 14. EMG WL
-    5.5f, 
-    // 15. EMG variance
-    0.250f, 
-    // 16. EMG peak amplitude
-    0.850f
-    // **********************************************
-};
 
+constexpr float kFeatureMeans[16] = {
+    0.01648546f, 0.01030279f, 0.00719316f, 0.00549122f, 0.02428695f, 0.00549539f,
+    0.00641472f, 0.01100811f, 0.00771037f, -0.01160149f, 0.00851172f, -0.01132491f,
+    0.00761950f, 0.00646390f, 0.00804614f, 0.00533492f
+};
 constexpr float kFeatureStdDevs[16] = {
-    // 1-2. ACC stdX
-    0.001f, 0.005f, 
-    // 3-4. ACC stdY
-    0.002f, 0.004f, 
-    // 5-6. ACC stdZ
-    0.003f, 0.006f, 
-    // 7-8. SMA, peak ACC
-    0.050f, 0.100f,
-    // 9. RMS EMG
-    0.010f, 
-    // 10. zero crossings (ZC)
-    1.0f, 
-    // 11. waveform length (WA)
-    2.0f, 
-    // 12. slope sign changes (SSC)
-    3.0f, 
-    // 13. EMG mean abs
-    0.002f, 
-    // 14. EMG WL
-    0.5f, 
-    // 15. EMG variance
-    0.050f, 
-    // 16. EMG peak amplitude
-    0.150f
-    // **********************************************
+    1.01581902f, 1.01340002f, 1.01925573f, 1.00305759f, 0.98655081f, 1.00340754f,
+    1.00515812f, 1.01253829f, 1.00576271f, 0.99906173f, 0.99703052f, 0.98423961f,
+    1.00515800f, 1.00392036f, 1.00701311f, 1.00012826f
 };
 
 // =============================================================
@@ -119,7 +75,7 @@ tflite::MicroInterpreter* interpreter = nullptr;
 TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 
-constexpr int kTensorArenaSize = 150 * 1024; // 200 KB
+constexpr int kTensorArenaSize = 256 * 1024; 
 uint8_t tensor_arena[kTensorArenaSize];
 }
 
@@ -137,10 +93,10 @@ void setup() {
         return;
     }
 
-    static tflite::MicroMutableOpResolver<2> resolver; 
-    resolver.AddFullyConnected();
-    resolver.AddRelu();
-    // Softmax is not included to match the 1-output Sigmoid model.
+   static tflite::MicroMutableOpResolver<3> resolver; // Αλλάζουμε το μέγεθος σε 3
+        resolver.AddFullyConnected();
+        resolver.AddRelu();
+        resolver.AddLogistic(); // Το TFLM χρησιμοποιεί Logistic αντί για Sigmoid
 
     static tflite::MicroInterpreter static_interpreter(
         model, resolver, tensor_arena, kTensorArenaSize);
@@ -157,6 +113,9 @@ if (interpreter->AllocateTensors() != kTfLiteOk) {
 printf("After AllocateTensors\n");
     input = interpreter->input(0);
     output = interpreter->output(0);
+
+printf("Input Quantization: Scale = %f, Zero Point = %d\n", 
+           input->params.scale, input->params.zero_point);
 }
 
 // =============================================================
@@ -165,20 +124,25 @@ printf("After AllocateTensors\n");
 void loop() {
 
     // Fake input (16-D). Μπορείς να βάλεις ό,τι θέλεις.
-    float raw_features[16] = {
-        0.01f, 0.05f,     // ACC meanX, stdX
-        -0.02f, 0.04f,    // meanY, stdY
-        0.03f, 0.06f,     // meanZ, stdZ
-        0.40f, 0.92f,     // SMA, peak ACC
-        0.12f,            // RMS EMG
-        10.0f,            // zero crossings
-        17.0f,            // waveform length
-        32.0f,            // slope sign changes
-        0.03f,            // EMG mean abs
-        5.8f,             // EMG WL
-        0.26f,            // EMG variance
-        0.90f             // EMG peak amplitude
-    };
+// TEST A: Καθαρό Normal (Όλες οι τιμές ίσες με τη μέση τιμή)
+// TEST B: Σπασμός (Υψηλή διακύμανση ACC & EMG)
+float raw_features[16] = {
+    // 1-2. ACC meanX, stdX
+    4.0797f, 4.0640f, 
+    // 3-4. ACC meanY, stdY
+    4.0858f, 4.0277f, 
+    // 5-6. ACC meanZ, stdZ
+    3.9691f, 4.0171f, 
+    // 7-8. SMA, peak ACC
+    4.0275f, 4.0610f, 
+    // 9. RMS EMG
+    4.0298f, 
+    // 10-12. ZC, WA, SSC
+    3.9846f, 3.9965f, 3.9256f, 
+    // 13-16. EMG mean abs, WL, variance, peak amplitude
+    4.0302f, 4.0221f, 4.0361f, 4.0055f 
+};
+
 
     // ===============================
     // QUANTIZE INPUT
@@ -202,18 +166,38 @@ void loop() {
             standardized_features[i] = 0.0f;
         }
     }
-
-        for (int i = 0; i < 16; i++) {
+// ===============================
+    // QUANTIZE INPUT (ASYMPHALES)
+    // ===============================
+    for (int i = 0; i < 16; i++) {
         float x = standardized_features[i];
         
         // Quantization formula: q = round(x / scale) + zero_point
         int32_t q = (int32_t)(x / input->params.scale + input->params.zero_point);
 
-        // Clamping (always good practice for Int8)
-        if (q < -128) q = -128;
-        if (q > 127)  q = 127;
+        // 💡 ΑΣΦΑΛΗΣ ΜΕΤΑΤΡΟΠΗ/CLAMPING ΣΕ int8_t
+        int8_t q_final;
+        
+        // 1. Clamping (Βεβαιωνόμαστε ότι η τιμή είναι εντός [-128, 127])
+        if (q < -128) {
+            q_final = -128;
+        } else if (q > 127) {
+            q_final = 127;
+        } else {
+            q_final = (int8_t)q; // Απλό cast εφόσον είναι εντός ορίων
+        }
 
-        input->data.int8[i] = (int8_t)q;
+        // Εκτύπωση για αποσφαλμάτωση (μόνο για το πρώτο feature)
+        if (i == 0) {
+            printf("Feature 1 Calc: q_raw=%d -> q_final=%d\n", q, q_final);
+        }
+
+        // Εκχώρηση της τελικής clamped τιμής
+        input->data.int8[i] = q_final;
+        if (i == 0) {
+            printf("Pointer Check: Final Q_Final=%d, Read Back Immediately=%d\n", 
+                   q_final, input->data.int8[i]);
+        }
     }
 
 
@@ -222,32 +206,35 @@ void loop() {
     // =======================================
     dwt_enable_all();
     uint64_t t0 = time_us_64();
-    TfLiteStatus s = interpreter->Invoke();
+    //TfLiteStatus s = interpreter->Invoke();
     uint64_t t1 = time_us_64();
 
-    if (s != kTfLiteOk) {
-        printf("Invoke failed! Check TFLiteMicro error logs.\n");
-        return;
-    }
+    //if (s != kTfLiteOk) {
+     //   printf("Invoke failed! Check TFLiteMicro error logs.\n");
+      //  return;
+    //}
 
     // =======================================
     // 4. DE-QUANTIZE OUTPUT
     // =======================================
-    int8_t q0 = output->data.int8[0];
-    int8_t q1 = output->data.int8[1];
+int8_t q = output->data.int8[0];  // ONLY ONE OUTPUT
 
-    // De-quantization formula: y = (q - zero_point) * scale
-    float y0 = (q0 - output->params.zero_point) * output->params.scale;
-    float y1 = (q1 - output->params.zero_point) * output->params.scale;
+float prob = (q - output->params.zero_point) * output->params.scale;
 
-    int pred = (y0 > y1 ? 0 : 1);
+// Clamp to [0,1] just for safety
+if (prob < 0) prob = 0;
+if (prob > 1) prob = 1;
 
-    printf("\n=== SEIZURE MLP ===\n");
+int pred = (prob > 0.5f ? 1 : 0);  // 1 = SEIZURE
+
+
+   printf("\n=== SEIZURE MLP ===\n");
+    // Εκτυπώνουμε το [0] όπως πριν, αλλά προσέχουμε:
     printf("Raw Feature 1: %.2f -> Standardized: %.2f -> Quantized: %d\n", 
-           raw_features[0], standardized_features[0], input->data.int8[0]);
-    printf("Normal prob = %.3f\n", y0);
-    printf("Seizure prob = %.3f\n", y1);
-    printf("Predicted: %s\n", pred == 0 ? "NORMAL" : "SEIZURE");
+           raw_features[0], standardized_features[0], (int)input->data.int8[0]); 
+    // ΝΕΑ ΓΡΑΜΜΗ: Δείτε τι υπάρχει στη δεύτερη θέση
+    printf("Quantized Feature 2 Check: %d\n", (int)input->data.int8[1]); 
+    printf("Prediction: %s\n", pred ? "SEIZURE" : "NORMAL");
 
     printf("cycles=%u  cpi=%u  lsu=%u  fold=%u  time=%llu us\n",
            DWT_CYCCNT, DWT_CPICNT, DWT_LSUCNT, DWT_FOLDCNT, (t1 - t0));
